@@ -1,8 +1,12 @@
-# Phira
+# Phira-DGLAB
+
+使用rust在Phira内实现的DGLAB连接  
+下面为phira官方说明原文  
 
 ![Phira Showcase](https://phira.5wyxi.com/files/github-showcase.png)
 
 [中文版本](./README-zh_CN.md)
+
 
 ## Download
 
