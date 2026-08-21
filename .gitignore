@@ -5,6 +5,7 @@ inner.rs
 /cache
 /data
 /.cargo
+/.cargo-home
 /config.txt
 /assets/background.jpg
 /assets/res
@@ -40,3 +41,10 @@ inner.rs
 # OHOS
 
 /phira/dist/
+
+# Build artifacts / debug outputs (phira-dglab)
+
+/*.apk
+/screen_check.png
+/tools/__pycache__/
+__pycache__/

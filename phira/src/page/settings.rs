@@ -2,6 +2,7 @@ prpr_l10n::tl_file!("settings");
 
 use super::{NextPage, OffsetPage, Page, SharedState};
 use crate::{
+    dglab::{qr_texture, DglabServer},
     dir, get_data, get_data_mut,
     popup::ChooseButton,
     save_data,
@@ -24,7 +25,7 @@ use prpr::{
 use prpr_l10n::{LanguageIdentifier, LANG_IDENTS, LANG_NAMES};
 use reqwest::Url;
 use serde::Deserialize;
-use std::{borrow::Cow, fs, io, path::PathBuf, sync::atomic::Ordering};
+use std::{borrow::Cow, fs, io, path::PathBuf, sync::Arc, sync::atomic::Ordering};
 
 const ITEM_HEIGHT: f32 = 0.15;
 const INTERACT_WIDTH: f32 = 0.26;
@@ -132,6 +133,7 @@ enum SettingListType {
     General,
     Audio,
     Chart,
+    Dglab,
     Debug,
     About,
 }
@@ -140,6 +142,7 @@ pub struct SettingsPage {
     list_general: GeneralList,
     list_audio: AudioList,
     list_chart: ChartList,
+    list_dglab: DglabList,
     list_debug: DebugList,
 
     tabs: Tabs<SettingListType>,
@@ -158,15 +161,17 @@ impl SettingsPage {
             list_general: GeneralList::new(icon_lang),
             list_audio: AudioList::new(),
             list_chart: ChartList::new(),
+            list_dglab: DglabList::new(),
             list_debug: DebugList::new(),
 
             tabs: Tabs::new([
                 (SettingListType::General, || tl!("general")),
                 (SettingListType::Audio, || tl!("audio")),
                 (SettingListType::Chart, || tl!("chart")),
+                (SettingListType::Dglab, || "DGLAB".into()),
                 (SettingListType::Debug, || tl!("debug")),
                 (SettingListType::About, || tl!("about")),
-            ] as [(SettingListType, TitleFn); 5]),
+            ] as [(SettingListType, TitleFn); 6]),
 
             scroll: Scroll::new(),
             save_time: f32::INFINITY,
@@ -195,6 +200,7 @@ impl Page for SettingsPage {
             SettingListType::General => self.list_general.top_touch(touch, t),
             SettingListType::Audio => self.list_audio.top_touch(touch, t),
             SettingListType::Chart => self.list_chart.top_touch(touch, t),
+            SettingListType::Dglab => self.list_dglab.top_touch(touch, t),
             SettingListType::Debug => self.list_debug.top_touch(touch, t),
             SettingListType::About => false,
         } {
@@ -212,6 +218,7 @@ impl Page for SettingsPage {
             SettingListType::General => self.list_general.touch(touch, t)?,
             SettingListType::Audio => self.list_audio.touch(touch, t)?,
             SettingListType::Chart => self.list_chart.touch(touch, t)?,
+            SettingListType::Dglab => self.list_dglab.touch(touch, t)?,
             SettingListType::Debug => self.list_debug.touch(touch, t)?,
             SettingListType::About => None,
         } {
@@ -230,6 +237,7 @@ impl Page for SettingsPage {
             SettingListType::General => self.list_general.update(t)?,
             SettingListType::Audio => self.list_audio.update(t)?,
             SettingListType::Chart => self.list_chart.update(t)?,
+            SettingListType::Dglab => self.list_dglab.update(t)?,
             SettingListType::Debug => self.list_debug.update(t)?,
             SettingListType::About => false,
         };
@@ -260,6 +268,7 @@ impl Page for SettingsPage {
                         SettingListType::General => self.list_general.render(ui, r, t),
                         SettingListType::Audio => self.list_audio.render(ui, r, t),
                         SettingListType::Chart => self.list_chart.render(ui, r, t),
+                        SettingListType::Dglab => self.list_dglab.render(ui, r, t),
                         SettingListType::Debug => self.list_debug.render(ui, r, t),
                         SettingListType::About => render_about(ui, r, &self.icon),
                     });
@@ -277,6 +286,240 @@ impl Page for SettingsPage {
             return self.list_audio.next_page().unwrap_or_default();
         }
         NextPage::None
+    }
+}
+
+/// DGLAB tab: DG-LAB Coyote (郊狼) e-stim device connection settings.
+struct DglabList {
+    enabled_btn: DRectButton,
+    transport_btn: DRectButton,
+    ws_btn: DRectButton,
+    perfect_btn: DRectButton,
+    good_btn: DRectButton,
+    badmiss_btn: DRectButton,
+    /// 开启开关后建立的内嵌 WS 服务器（一并写入全局单例，供游戏内复用）。
+    transport: Option<Arc<DglabServer>>,
+    /// 已生成的配对二维码纹理。
+    qr: Option<SafeTexture>,
+    /// 记录上一次配对状态，用于配对成功的一次性提示。
+    was_paired: bool,
+}
+
+impl DglabList {
+    pub fn new() -> Self {
+        Self {
+            enabled_btn: DRectButton::new(),
+            transport_btn: DRectButton::new(),
+            ws_btn: DRectButton::new(),
+            perfect_btn: DRectButton::new(),
+            good_btn: DRectButton::new(),
+            badmiss_btn: DRectButton::new(),
+            transport: None,
+            qr: None,
+            was_paired: false,
+        }
+    }
+
+    /// 按当前配置建立内嵌 WS 服务器（局域网直连模式）。
+    fn ensure_transport(&mut self) {
+        self.close_transport();
+        if get_data().config.dglab_use_ble {
+            return;
+        }
+        let port = get_data().config.dglab_listen_port.max(1);
+        let manual = get_data().config.dglab_ws_url.clone();
+        let (listen_host, public_host, port) = DglabServer::resolve_addr(&manual, port);
+        // 每次开启都生成一个新的唯一 clientId，避免复用导致 APP 配对冲突（错误码 400）。
+        let client_id = format!("phira-{}", uuid::Uuid::new_v4());
+        match DglabServer::bind(&listen_host, &public_host, port, client_id) {
+            Ok(server) => {
+                crate::dglab::set_server(Some(Arc::clone(&server)));
+                self.transport = Some(server);
+            }
+            Err(err) => {
+                show_message(tl!("item-dglab-test-fail", "err" => format!("{err:#}"))).error();
+            }
+        }
+    }
+
+    /// 断开并丢弃当前传输（开关关闭 / 切到 BLE / 离开页面）。
+    fn close_transport(&mut self) {
+        self.transport = None;
+        self.qr = None;
+        self.was_paired = false;
+        // 释放全局单例，停止监听端口。
+        crate::dglab::set_server(None);
+    }
+
+    /// 同步连接状态：生成二维码、提示配对成功。
+    fn sync_transport_state(&mut self) {
+        let Some(transport) = &self.transport else { return };
+        // 非阻塞检测：拿不到锁说明后台任务正忙，跳过本帧（绝不阻塞 UI 线程）
+        let Ok(state) = transport.shared.try_lock() else { return };
+        if !state.client_id.is_empty() {
+            if self.qr.is_none() {
+                // 直接基于已持有的 guard 构造二维码内容（避免二次加锁）
+                let content = format!(
+                    "https://www.dungeon-lab.com/app-download.php#DGLAB-SOCKET#{}/{}",
+                    state.url, state.client_id
+                );
+                self.qr = Some(qr_texture(&content, 8));
+            }
+            if state.paired && !self.was_paired {
+                self.was_paired = true;
+                show_message(tl!("item-dglab-paired")).ok();
+            }
+        }
+    }
+
+    pub fn top_touch(&mut self, _touch: &Touch, _t: f32) -> bool {
+        false
+    }
+
+    pub fn touch(&mut self, touch: &Touch, t: f32) -> Result<Option<bool>> {
+        let config = &mut get_data_mut().config;
+        if self.enabled_btn.touch(touch, t) {
+            // 在内层块内改写配置，块结束即释放对 static mut 的借用，避免后续调用再取 data 时 UB
+            let was_enabled = {
+                let config = &mut get_data_mut().config;
+                let was = config.dglab_enabled;
+                config.dglab_enabled ^= true;
+                was
+            };
+            if !was_enabled {
+                self.ensure_transport();
+            } else {
+                self.close_transport();
+            }
+            return Ok(Some(true));
+        }
+        if self.transport_btn.touch(touch, t) {
+            // 同样先读后释放借用，再操作传输
+            let (was_ble, was_enabled) = {
+                let config = &mut get_data_mut().config;
+                let was_ble = config.dglab_use_ble;
+                let was_enabled = config.dglab_enabled;
+                config.dglab_use_ble ^= true;
+                (was_ble, was_enabled)
+            };
+            if was_enabled {
+                // 切到 WS 重新建立连接，切到 BLE 断开（BLE 后端未实现）
+                if !was_ble {
+                    self.close_transport();
+                } else {
+                    self.ensure_transport();
+                }
+            }
+            return Ok(Some(true));
+        }
+        if self.ws_btn.touch(touch, t) {
+            request_input("dglab_ws", InputBox::new().default_text(&config.dglab_ws_url));
+            return Ok(Some(true));
+        }
+        if self.perfect_btn.touch(touch, t) {
+            request_input("dglab_perfect", InputBox::new().default_text(&config.dglab_perfect_power));
+            return Ok(Some(true));
+        }
+        if self.good_btn.touch(touch, t) {
+            request_input("dglab_good", InputBox::new().default_text(&config.dglab_good_power));
+            return Ok(Some(true));
+        }
+        if self.badmiss_btn.touch(touch, t) {
+            request_input("dglab_badmiss", InputBox::new().default_text(&config.dglab_badmiss_power));
+            return Ok(Some(true));
+        }
+        Ok(None)
+    }
+
+    pub fn update(&mut self, _t: f32) -> Result<bool> {
+        self.sync_transport_state();
+        if let Some((id, text)) = take_input() {
+            let config = &mut get_data_mut().config;
+            match id.as_str() {
+                "dglab_ws" => config.dglab_ws_url = text,
+                "dglab_perfect" => config.dglab_perfect_power = text,
+                "dglab_good" => config.dglab_good_power = text,
+                "dglab_badmiss" => config.dglab_badmiss_power = text,
+                _ => return_input(id, text),
+            }
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    pub fn render(&mut self, ui: &mut Ui, r: Rect, t: f32) -> (f32, f32) {
+        let w = r.w;
+        let mut h = 0.;
+        macro_rules! item {
+            ($($b:tt)*) => {{
+                $($b)*
+                ui.dy(ITEM_HEIGHT);
+                h += ITEM_HEIGHT;
+            }}
+        }
+        let rr = right_rect(w);
+
+        let config = &get_data().config;
+        item! {
+            render_title(ui, tl!("item-dglab"), Some(tl!("item-dglab-sub")));
+            render_switch(ui, rr, t, &mut self.enabled_btn, config.dglab_enabled);
+        }
+        item! {
+            render_title(ui, tl!("item-dglab-transport"), Some(tl!("item-dglab-transport-sub")));
+            let label = if config.dglab_use_ble { "BLE" } else { "WS" }.to_owned();
+            self.transport_btn.render_text(ui, rr, t, &label, 0.5, false);
+        }
+        item! {
+            render_title(ui, tl!("item-dglab-ws"), Some(tl!("item-dglab-ws-sub")));
+            self.ws_btn.render_text(ui, rr, t, &config.dglab_ws_url, 0.4, false);
+        }
+        item! {
+            render_title(ui, tl!("item-dglab-perfect"), None);
+            self.perfect_btn.render_text(ui, rr, t, &config.dglab_perfect_power, 0.4, false);
+        }
+        item! {
+            render_title(ui, tl!("item-dglab-good"), None);
+            self.good_btn.render_text(ui, rr, t, &config.dglab_good_power, 0.4, false);
+        }
+        item! {
+            render_title(ui, tl!("item-dglab-badmiss"), None);
+            self.badmiss_btn.render_text(ui, rr, t, &config.dglab_badmiss_power, 0.4, false);
+        }
+
+        // 配对二维码显示区域
+        if let Some(qr) = &self.qr {
+            let side = w * 0.46;
+            let cx = w / 2.;
+            ui.dy(0.03);
+            h += 0.03;
+            let r = Rect::new(cx - side / 2., 0., side, side);
+            ui.fill_rect(r.feather(-0.008), WHITE);
+            ui.fill_rect(r, (**qr, r));
+            ui.dy(side);
+            h += side;
+            let hint = if self.was_paired { tl!("item-dglab-paired-hint") } else { tl!("item-dglab-qr-hint") };
+            ui.text(hint)
+                .pos(cx, 0.)
+                .anchor(0.5, 0.)
+                .size(0.35)
+                .color(WHITE)
+                .draw();
+            ui.dy(0.15);
+            h += 0.15;
+        } else if self.transport.is_some() {
+            // 已开启但尚未分配到 clientId（等待服务端）
+            let cx = w / 2.;
+            ui.dy(0.03);
+            ui.text(tl!("item-dglab-qr-wait"))
+                .pos(cx, 0.)
+                .anchor(0.5, 0.)
+                .size(0.35)
+                .color(WHITE)
+                .draw();
+            ui.dy(0.25);
+            h += 0.25;
+        }
+        (w, h)
     }
 }
 

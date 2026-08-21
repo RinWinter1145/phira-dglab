@@ -87,6 +87,23 @@ enum ImportChart {
     Skipped(String),
 }
 
+/// Load the menu background image.
+///
+/// `assets/background.jpg` is a proprietary asset that is not shipped with the
+/// public repository, so fall back to the bundled `abstract.jpg` to keep the
+/// game runnable for development / testing.
+async fn load_background() -> Result<SafeTexture> {
+    for path in ["background.jpg", "abstract.jpg"] {
+        if let Ok(tex) = load_texture(path).await {
+            if path != "background.jpg" {
+                tracing::warn!("assets/background.jpg is missing (proprietary asset) - falling back to {path}");
+            }
+            return Ok(tex.into());
+        }
+    }
+    Err(anyhow!("failed to load any background image (tried background.jpg, abstract.jpg)"))
+}
+
 impl MainScene {
     // shall be call exactly once
     pub async fn new(fallback: FontArc) -> Result<Self> {
@@ -129,7 +146,7 @@ impl MainScene {
         load_sfx!(UI_BTN_HITSOUND, "button.ogg");
         load_sfx!(UI_SWITCH_SOUND, "switch.ogg");
 
-        let background: SafeTexture = load_texture("background.jpg").await?.into();
+        let background: SafeTexture = load_background().await?;
         let icon_back: SafeTexture = load_texture("back.png").await?.into();
 
         TEX_BACKGROUND.with(|it| *it.borrow_mut() = Some(background));

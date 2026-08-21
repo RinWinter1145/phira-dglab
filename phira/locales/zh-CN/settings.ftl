@@ -104,3 +104,25 @@ about-content =
   { $localization }
 
   以及许多志愿谱面审核员！完整列表参见 https://phira.moe/staff
+
+# DGLAB（DG-LAB 郊狼电刺激设备）
+item-dglab = 连接郊狼
+item-dglab-sub = 连接到 DG-LAB 郊狼设备
+item-dglab-ws = WebSocket 地址
+item-dglab-ws-sub = DG-LAB WebSocket 网关地址
+item-dglab-perfect = Perfect 强度
+item-dglab-good = Good 强度
+item-dglab-badmiss = Bad/Miss 强度
+item-dglab-transport = 传输方式
+item-dglab-transport-sub = BLE 或 WebSocket
+item-dglab-transport-ble = BLE
+item-dglab-transport-ws = WS
+item-dglab-testing = 正在测试连接…
+item-dglab-test-ok = 连接测试通过
+item-dglab-test-fail = 连接测试失败：{ $err }
+item-dglab-ws-url-empty = 请先填写 WebSocket 地址
+item-dglab-ble-not-implemented = BLE 后端尚未实现，暂时无法测试
+item-dglab-qr-hint = 使用 DG-LAB App 扫码配对
+item-dglab-qr-wait = 等待服务端分配配对 ID…
+item-dglab-paired = 配对成功
+item-dglab-paired-hint = 已配对，开始享受吧！

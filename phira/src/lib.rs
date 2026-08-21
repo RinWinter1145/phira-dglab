@@ -9,6 +9,7 @@ mod censor;
 mod charts_view;
 mod client;
 mod data;
+mod dglab;
 mod icons;
 mod images;
 mod login;
@@ -44,7 +45,7 @@ use std::{
     collections::VecDeque,
     sync::{mpsc, Mutex},
 };
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[cfg(target_os = "android")]
 use jni::{
@@ -167,6 +168,29 @@ mod dir {
     }
 }
 
+/// Load the main UI font.
+///
+/// `assets/font.ttf` is a proprietary asset that is not shipped with the public
+/// repository, so fall back to the bundled fonts (in order) to keep the game
+/// runnable for development / testing. Drop the real `font.ttf` into `assets/`
+/// to restore the intended look.
+async fn load_ui_font() -> Result<FontArc> {
+    for path in ["font.ttf", "bold.ttf", "phigros.ttf"] {
+        if let Ok(bytes) = load_file(path).await {
+            match FontArc::try_from_vec(bytes) {
+                Ok(font) => {
+                    if path != "font.ttf" {
+                        warn!("assets/{path} is missing (proprietary asset) - falling back to {path} as the UI font");
+                    }
+                    return Ok(font);
+                }
+                Err(err) => warn!("failed to parse font assets/{path}: {err:?}"),
+            }
+        }
+    }
+    Err(anyhow::anyhow!("failed to load any UI font (tried font.ttf, bold.ttf, phigros.ttf)"))
+}
+
 async fn the_main() -> Result<()> {
     log::register();
     #[cfg(target_env = "ohos")]
@@ -223,7 +247,7 @@ async fn the_main() -> Result<()> {
     let pgr_font = FontArc::try_from_vec(load_file("phigros.ttf").await?)?;
     PGR_FONT.with(move |it| *it.borrow_mut() = Some(TextPainter::new(pgr_font, None)));
 
-    let font = FontArc::try_from_vec(load_file("font.ttf").await?)?;
+    let font = load_ui_font().await?;
     let mut painter = TextPainter::new(font.clone(), None);
 
     let mut main = Main::new(Box::new(MainScene::new(font).await?), TimeManager::default(), None).await?;

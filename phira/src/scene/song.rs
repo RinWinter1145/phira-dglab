@@ -970,6 +970,9 @@ impl SongScene {
             update_fn
         });
 
+        // DGLAB 郊狼：包装 update_fn 转发判定事件到 WS 传输（BLE 传输后续接同一 trait）。
+        let update_fn = crate::dglab::build_dglab_update_fn(update_fn);
+
         let save_fn: Option<SaveFn> = Some(Box::new({
             let local_path = local_path.to_string();
             move |new_rec| -> Result<()> {

@@ -105,3 +105,25 @@ about-content =
   { $localization }
 
   And many more voluntary chart reviewers. For a full list please refer to https://phira.moe/staff .
+
+# DGLAB (DG-LAB Coyote e-stim device)
+item-dglab = Connect Coyote
+item-dglab-sub = Connect to the DG-LAB Coyote device.
+item-dglab-ws = WebSocket Address
+item-dglab-ws-sub = DG-LAB WebSocket gateway address.
+item-dglab-perfect = Perfect Intensity
+item-dglab-good = Good Intensity
+item-dglab-badmiss = Bad/Miss Intensity
+item-dglab-transport = Transport
+item-dglab-transport-sub = BLE or WebSocket
+item-dglab-transport-ble = BLE
+item-dglab-transport-ws = WS
+item-dglab-testing = Testing connection…
+item-dglab-test-ok = Connection test passed
+item-dglab-test-fail = Connection test failed: { $err }
+item-dglab-ws-url-empty = Please fill in the WebSocket address first
+item-dglab-ble-not-implemented = BLE backend is not implemented yet, cannot test
+item-dglab-qr-hint = Scan with the DG-LAB app to pair
+item-dglab-qr-wait = Waiting for server to assign pairing ID…
+item-dglab-paired = Paired successfully
+item-dglab-paired-hint = Paired - enjoy!
